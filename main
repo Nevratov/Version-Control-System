@@ -1,0 +1,151 @@
+import java.io.File
+import java.security.MessageDigest
+
+val vcsDir = File("vcs")
+val commitsDir = File("vcs\\commits")
+val backHashDir = File("vcs\\backHash")
+val indexFile = File("vcs\\index.txt")
+val configFile = File("vcs\\config.txt")
+val logFile = File("vcs\\log.txt")
+
+fun checkFiles() {
+    if (!vcsDir.exists()) vcsDir.mkdir()
+    if (!commitsDir.exists()) commitsDir.mkdir()
+    if (!backHashDir.exists()) backHashDir.mkdir()
+    if (!logFile.exists()) logFile.createNewFile()
+    if (!indexFile.exists()) indexFile.createNewFile()
+    if (!configFile.exists()) configFile.createNewFile()
+    firstCreationBackFiles()
+}
+
+fun help() {
+    println("""
+        These are SVCS commands:
+        config     Get and set a username.
+        add        Add a file to the index.
+        log        Show commit logs.
+        commit     Save changes.
+        checkout   Restore a file.
+        """.trimIndent())
+}
+
+fun add(args: Array<String>) {
+    val checkIndex = indexFile.readText()
+    val fileTrack = if (args.size == 2) File(args[1]) else null
+
+    if (args.size == 1 && checkIndex.isEmpty()) println("Add a file to the index.")
+    else if (fileTrack != null) {
+        if (fileTrack.exists()) {
+            indexFile.appendText("${args[1]}\n")
+            println("The file '$fileTrack' is tracked.")
+        } else println("Can't find '$fileTrack'.")
+    } else {
+        println("Tracked files:")
+        for (line in indexFile.readLines()) println(line)
+    }
+}
+
+fun config(args: Array<String>) {
+    if (args.size == 1 && configFile.readText().isEmpty()) println("Please, tell me who you are.")
+    else if (args.size == 2) {
+        configFile.writeText(args[1])
+        println("The username is ${args[1]}.")
+    } else println("The username is ${configFile.readText()}.")
+}
+
+fun commit(args: Array<String>) {
+    var commit = ""
+    for (i in 1..args.lastIndex) commit += args[i]
+    val commitHash = hash(commit)
+    val hashCodeDir = File("vcs\\commits\\$commitHash")
+
+    if (args.size == 1) println("Message was not passed.")
+    else if (checkCurrentFiles() == checkBackFiles()) println("Nothing to commit.")
+    else if (!hashCodeDir.exists()) {
+        hashCodeDir.mkdir()
+        for (line in indexFile.readLines()) {
+            val trackFile = File(line)
+            val copyTrackFile = hashCodeDir.resolve(trackFile)
+            trackFile.copyTo(copyTrackFile)
+        }
+        makeLog(commit)
+        copyHash()
+        println("Changes are committed.")
+    } else println("Такая папка хешей уже существует ERROR")
+}
+
+fun copyHash() {
+    for (line in indexFile.readLines()) {
+        val targetHashFile = File(line).readText().trimIndent()
+        File("$backHashDir\\$line").writeText(hash(targetHashFile))
+    }
+}
+
+fun checkCurrentFiles(): MutableList<String> {
+    val arrayCurrentHash = mutableListOf<String>()
+    for (line in indexFile.readLines()) {
+        val targetHashFile = File(line).readText().trimIndent()
+        arrayCurrentHash.add(hash(targetHashFile))
+    }
+    return arrayCurrentHash
+}
+
+fun checkBackFiles(): MutableList<String> {
+    val arrayBackHash = mutableListOf<String>()
+    for (line in indexFile.readLines()) {
+        val targetHashFile = File("$backHashDir\\$line").readText().trimIndent()
+        arrayBackHash.add(targetHashFile)
+    }
+    return arrayBackHash
+}
+
+fun firstCreationBackFiles() {
+    for (line in indexFile.readLines()) {
+        val backHashFile = File("$backHashDir\\$line")
+        if (!backHashFile.exists()) backHashFile.createNewFile()
+    }
+}
+
+fun makeLog(commit: String) {
+    val oldText = logFile.readText()
+    logFile.writeText("commit ${hash(commit)}\nAuthor: ${configFile.readText()}\n$commit")
+    logFile.appendText("\n\n$oldText")
+}
+
+fun log() = if (logFile.readText().isEmpty()) println("No commits yet.") else println(logFile.readText())
+
+fun hash(commit: String): String {
+    val bytes = commit.toByteArray()
+    val md = MessageDigest.getInstance("SHA-256")
+    val digest = md.digest(bytes)
+    return digest.fold("") { str, it -> str + "%02x".format(it) }
+}
+
+fun checkout(args: Array<String>) {
+    val listCommitsFiles = commitsDir.listFiles()!!.map{it.name}
+
+    if (args.size == 1) println("Commit id was not passed.")
+    else if (args.size == 2 && args[1] in listCommitsFiles ) {
+        val targetCommitFile =  File("vcs\\commits\\${args[1]}")
+        for (file in targetCommitFile.listFiles()!!.map{it.name}) {
+            val fileInCommit = File("$targetCommitFile\\$file")
+            File(file).writeText(fileInCommit.readText())
+        }
+        println("Switched to commit ${args[1]}.")
+    } else println("Commit does not exist.")
+}
+
+fun main(args: Array<String>) {
+    checkFiles()
+    if (args.isNotEmpty()) {
+        when (args[0]) {
+            "--help" -> help()
+            "config" -> config(args)
+            "add" -> add(args)
+            "log" -> log()
+            "commit" -> commit(args)
+            "checkout" -> checkout(args)
+            else -> println("'${args[0]}' is not a SVCS command.")
+        }
+    } else help()
+}
